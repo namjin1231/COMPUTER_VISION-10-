@@ -5,7 +5,7 @@ import cv2
 from ultralytics import YOLO
 
 def extract_folder(folder, step=2):
-    pose = YOLO("yolov8n-pose.pt")          # 영상마다 새로 만들어야 추적 ID가 안 섞여
+    pose = YOLO("yolo26n-pose.pt")          # 영상마다 새로 만들어야 추적 ID가 안 섞여
     files = sorted(Path(folder).rglob("*.png"))[::step]   # 30fps -> 15fps
     tracks = {}   # track_id -> [(frame_idx, kpts[17,3], box[4]), ...]
     for f, p in enumerate(files):
@@ -35,5 +35,5 @@ if __name__ == "__main__":
     frames = np.array(fs)
     kpts = np.stack([merged[f][0] for f in fs])    # (T, 17, 3)
     boxes = np.stack([merged[f][1] for f in fs])   # (T, 4)
-    np.savez(out_dir / f"{folder.name}.npz", frames=frames, kpts=kpts, boxes=boxes)
+    np.savez(out_dir / f"{folder.name}.npz", frames=frames, kpts=kpts, boxes=boxes, n=n)   # n = 전체 프레임 수
     print(f"  합친 결과: {len(fs)}프레임, kpts {kpts.shape}, 놓친 프레임 {n - len(fs)}장")

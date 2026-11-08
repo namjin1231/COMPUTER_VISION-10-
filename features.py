@@ -5,6 +5,10 @@ import numpy as np
 FPS = 15
 MIN_CONF = 0.3   # 이보다 낮은 관절은 결측
 MAX_GAP = 2      # 2프레임까지는 보간, 3프레임 이상 끊기면 0
+# 특징 스케일 (관절 좌표가 대략 ±1이라 나머지도 비슷한 범위로 맞춘다)
+ANGLE_SCALE = 90.0   # 몸통 각도(도) / 90 -> 0(서 있음) ~ 1(누움)
+VEL_CLIP = 3.0       # 세로 속도(박스 높이/초)를 ±3에서 자르고 3으로 나눔 -> ±1.
+                     # UR Fall 낙상 영상에서 99%가 ±3 안. 그 밖은 대부분 검출이 튄 값
 
 def fill_short_gaps(a, max_gap=MAX_GAP):
     """NaN이 연속 max_gap개 이하면 앞뒤 값으로 직선 보간. 나머지 NaN은 그대로 둔다."""
@@ -26,7 +30,9 @@ def fill_short_gaps(a, max_gap=MAX_GAP):
 def compute_features(path):
     d = np.load(path)
     frames, kpts, boxes = d["frames"], d["kpts"], d["boxes"]
-    F = int(frames.max()) + 1
+    # 특징 길이 = 영상 전체 프레임 수. 마지막 검출에서 자르면 누운 뒤 사람을 놓친 구간(쓰러짐)이 사라진다.
+    # n이 없는 옛 raw 파일은 예전처럼 마지막 검출 프레임까지.
+    F = int(d["n"]) if "n" in d else int(frames.max()) + 1
 
     # 빈 프레임은 NaN으로 채운 전체 배열 만들기
     K = np.full((F, 17, 3), np.nan)
@@ -80,10 +86,10 @@ def compute_features(path):
 
     feats = np.zeros((F, 55))
     feats[:, :51] = joints.reshape(F, 51)
-    feats[:, 51] = angle
-    feats[:, 52] = head_v
+    feats[:, 51] = angle / ANGLE_SCALE
+    feats[:, 52] = np.clip(head_v, -VEL_CLIP, VEL_CLIP) / VEL_CLIP
     feats[:, 53] = aspect
-    feats[:, 54] = cy_v
+    feats[:, 54] = np.clip(cy_v, -VEL_CLIP, VEL_CLIP) / VEL_CLIP
     feats[~ok] = 0.0          # 박스가 없는 프레임은 전부 0
     return feats
 
@@ -94,5 +100,5 @@ if __name__ == "__main__":
     np.save(out_dir / (src.stem + ".npy"), f.astype(np.float32))
     print(f"{src.stem}: 특징 {f.shape}")
     print("빈 프레임(전부 0):", np.where(~f.any(axis=1))[0].tolist())
-    print("몸통 각도(10프레임마다):", [round(float(a)) for a in f[::10, 51]])
+    print("몸통 각도/90 (10프레임마다):", [round(float(a), 2) for a in f[::10, 51]])
     print("박스 가로/세로 비율(10프레임마다):", [round(float(a), 2) for a in f[::10, 53]])
