@@ -1,5 +1,5 @@
 import torch.nn as nn
-from dataset import NCLS
+from labels import NCLS
 
 class FallGRU(nn.Module):
     def __init__(self, in_dim=55, hidden=128, n_cls=NCLS):

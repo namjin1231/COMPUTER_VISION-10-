@@ -1,3 +1,5 @@
+# 주의: 예전 UR Fall용 학습 코드 (창마다 정답 1개, y (N,)).
+# 새 창 형식은 프레임마다 정답 30개(y (N, 30), -1은 손실에서 제외)라 이대로는 안 맞는다 -> DATA_FORMAT.md 참고
 import argparse
 import json
 from pathlib import Path
@@ -8,7 +10,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from sklearn.metrics import confusion_matrix, f1_score
 from model import FallGRU
-from dataset import NCLS, CLASS_NAMES
+from labels import NCLS, CLASS_NAMES
 from augment import augment
 
 NAMES = "[" + ", ".join(CLASS_NAMES) + "]"

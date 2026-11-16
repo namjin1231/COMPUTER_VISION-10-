@@ -19,7 +19,7 @@ def flip(w):
 
 def jitter(w, rng, sigma=0.01):
     j = w[:, :51].reshape(-1, 17, 3).copy()
-    seen = j[:, :, 2] > 0                  # 놓친 관절(전부 0)은 건드리지 않는다
+    seen = j[:, :, 2] > 0                  # 못 찾은 프레임의 관절(신뢰도 0, 직전 좌표)은 건드리지 않는다
     j[:, :, :2] += rng.normal(0, sigma, j[:, :, :2].shape) * seen[:, :, None]
     out = w.copy()
     out[:, :51] = j.reshape(-1, 51)
@@ -37,10 +37,13 @@ def speed(w, rng, lo=0.8, hi=1.2):
     return out
 
 def drop_joints(w, rng, lo=1, hi=4):
+    """features.py의 빠진 관절과 같은 모양: 신뢰도 0, 좌표는 직전 값 유지.
+    창 전체에서 지우므로 창 첫 프레임 좌표로 고정한다 (그 전부터 못 본 것처럼)"""
     k = int(rng.integers(lo, hi + 1))
     js = rng.choice(17, size=k, replace=False)
     j = w[:, :51].reshape(-1, 17, 3).copy()
-    j[:, js, :] = 0.0                          # 못 찾은 관절과 같은 표현(x, y, 신뢰도 모두 0)
+    j[:, js, :2] = j[0, js, :2]
+    j[:, js, 2] = 0.0
     out = w.copy()
     out[:, :51] = j.reshape(-1, 51)
     return out
