@@ -112,6 +112,7 @@ def main():
     ap.add_argument("--conf", type=float, default=None, help="검출 최소 신뢰도 (기본: Ultralytics 기본값)")
     ap.add_argument("--device", default="auto")
     ap.add_argument("--limit", type=int, default=0, help="앞에서부터 N개만 (시험용)")
+    ap.add_argument("--shuffle", action="store_true", help="영상을 고정된 무작위 순서로 처리")
     ap.add_argument("--shard", default="0/1", help="i/n: 영상을 n묶음으로 나눈 것 중 i번째만 (여러 터미널에서 동시에 돌릴 때)")
     ap.add_argument("--overwrite", action="store_true")
     a = ap.parse_args()
@@ -122,6 +123,8 @@ def main():
         root = Path(a.src)
         out = Path(a.out or "out/pose/custom")
     vids = [root] if root.is_file() else sorted(p for p in root.rglob("*") if p.suffix.lower() in VID_EXT)
+    if a.shuffle:                                   # 중간에 멈춰도 그때까지의 결과가 전체의 무작위 표본이 되게
+        vids = [vids[i] for i in np.random.default_rng(0).permutation(len(vids))]
     si, sn = map(int, a.shard.split("/"))
     vids = vids[si::sn]
     if a.limit:
