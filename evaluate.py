@@ -77,6 +77,7 @@ if __name__ == "__main__":
     ap.add_argument("--data", default="out/data")
     ap.add_argument("--datasets", nargs="+", required=True)
     ap.add_argument("--split", default="val", choices=["val", "test"])
+    ap.add_argument("--tag", default="", help="결과 파일 이름 eval_<split>_<tag>.json (데이터셋 묶음을 바꿔 평가할 때 덮어쓰지 않게)")
     a = ap.parse_args()
     run = Path(a.run)
     corpus = Corpus(a.data, a.datasets, a.split)
@@ -90,4 +91,4 @@ if __name__ == "__main__":
         v = np.array(list(seeds.values()))
         print(f"시드 {len(v)}개 macro-F1 {v.mean():.3f} ± {v.std():.3f}  {dict((k, round(x, 3)) for k, x in seeds.items())}")
     json.dump(dict(split=a.split, datasets=a.datasets, best=res, seeds=seeds),
-              open(run / f"eval_{a.split}.json", "w"), ensure_ascii=False, indent=1)
+              open(run / f"eval_{a.split}{'_' + a.tag if a.tag else ''}.json", "w"), ensure_ascii=False, indent=1)

@@ -35,6 +35,7 @@ CONFIGS = {
     "OOPS": ("of-itw", ("test",)),
 }
 SYNTHETIC = {"of-syn"}
+KEEP_IN_TEST = {"low_coverage", "no_person"}    # 테스트에서는 빼지 않는 피험자 선택 결과
 SPLIT_NAME = {"train": "train", "validation": "val", "test": "test"}
 
 
@@ -90,7 +91,8 @@ def build(dataset, pose_dir, out_dir):
         row.update(status=sel["status"], coverage=round(sel["coverage"], 3), n_frames=len(y),
                    n_tracks=sel["n_tracks"], n_people=sel["n_people"],
                    fallen_frames=int((y == 2).sum()), fallen_detected=int((sel["valid"] & (y == 2)).sum()))
-        if sel["status"] != "ok":
+        # 학습·검증은 피험자를 믿을 수 있는 영상만 쓴다. 테스트는 실시간 사용과 같게 사람을 잘 못 잡은 영상도 넣는다
+        if sel["status"] != "ok" and not (split == "test" and sel["status"] in KEEP_IN_TEST):
             continue
         feats.append(compute_features(sel["kpts"], sel["box"], sel["valid"]))
         ys.append(y)
