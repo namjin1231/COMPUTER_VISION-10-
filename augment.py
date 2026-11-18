@@ -1,52 +1,70 @@
-"""창 하나(30, 55)에 거는 증강. 학습 때만 쓴다.
-특징 배치: [0:51] = 관절 17개 x (x, y, 신뢰도), 51 몸통 각도/90, 52 머리 세로 속도(±1), 53 박스 가로/세로 비율, 54 박스 중심 세로 속도(±1)
-회전·크기 변환은 몸통 각도와 값이 어긋나서 쓰지 않는다.
+"""⑤ 데이터 증강 (제안서 4.3 ⑤). 학습 때만 쓴다. 입력은 창 묶음 X (B, 30, 55).
+  좌우 반전        x 부호를 뒤집고 좌우 관절 번호를 바꾼다. 각도·속도·박스 비율은 좌우와 무관
+  좌표 흔들기      보이는 관절의 x, y에 작은 잡음
+  속도 0.8~1.2배   dataset.gather가 창을 다시 뽑고, 여기서는 속도 특징에 같은 배율을 곱한다
+  관절 1~4개 지우기  실제 추출과 같은 모양: 어느 시점부터 신뢰도 0, 좌표는 직전 값 유지
+회전·크기 변환은 이미 계산된 몸통 각도와 값이 어긋나므로 쓰지 않는다.
 """
 import numpy as np
 
-# COCO 17 관절의 좌우 짝: 눈, 귀, 어깨, 팔꿈치, 손목, 엉덩이, 무릎, 발목
+from features import CY_V, HEAD_V
+
 PAIRS = [(1, 2), (3, 4), (5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16)]
-SWAP = list(range(17))
-for a, b in PAIRS:
-    SWAP[a], SWAP[b] = b, a
+SWAP = np.arange(17)
+for _a, _b in PAIRS:
+    SWAP[_a], SWAP[_b] = _b, _a
+P = 0.5
+SPEED = (0.8, 1.2)
+JITTER = 0.01
 
-def flip(w):
-    j = w[:, :51].reshape(-1, 17, 3)[:, SWAP].copy()
-    j[:, :, 0] *= -1                       # 박스 중심 기준 좌표라 x 부호만 뒤집으면 된다
-    out = w.copy()
-    out[:, :51] = j.reshape(-1, 51)        # 각도(절댓값), 속도, 비율은 좌우와 무관
+
+def sample_speed(n, rng):
+    """창마다 배속. 절반은 1(그대로)"""
+    return np.where(rng.random(n) < P, rng.uniform(*SPEED, n), 1.0)
+
+
+def scale_velocity(X, speed):
+    X[:, :, [HEAD_V, CY_V]] = np.clip(X[:, :, [HEAD_V, CY_V]] * speed[:, None, None], -1, 1)
+    return X
+
+
+def flip(X):
+    J = X[:, :, :51].reshape(len(X), X.shape[1], 17, 3)[:, :, SWAP].copy()
+    J[..., 0] *= -1
+    out = X.copy()
+    out[:, :, :51] = J.reshape(len(X), X.shape[1], 51)
     return out
 
-def jitter(w, rng, sigma=0.01):
-    j = w[:, :51].reshape(-1, 17, 3).copy()
-    seen = j[:, :, 2] > 0                  # 놓친 관절(전부 0)은 건드리지 않는다
-    j[:, :, :2] += rng.normal(0, sigma, j[:, :, :2].shape) * seen[:, :, None]
-    out = w.copy()
-    out[:, :51] = j.reshape(-1, 51)
+
+def jitter(X, rng, sigma=JITTER):
+    J = X[:, :, :51].reshape(len(X), X.shape[1], 17, 3).copy()
+    J[..., :2] += rng.normal(0, sigma, J[..., :2].shape) * (J[..., 2:3] > 0)
+    out = X.copy()
+    out[:, :, :51] = J.reshape(len(X), X.shape[1], 51)
+    return out.astype(np.float32)
+
+
+def drop_joints(x, rng, lo=1, hi=4):
+    """창 하나 (T, 55). 관절 1~4개를 임의 시점부터 임의 길이만큼 지운다."""
+    T = len(x)
+    J = x[:, :51].reshape(T, 17, 3).copy()
+    for j in rng.choice(17, size=int(rng.integers(lo, hi + 1)), replace=False):
+        t0 = int(rng.integers(0, T))
+        t1 = min(T, t0 + int(rng.integers(3, T + 1)))
+        J[t0:t1, j, :2] = J[max(t0 - 1, 0), j, :2]          # 직전 값 유지
+        J[t0:t1, j, 2] = 0.0
+    out = x.copy()
+    out[:, :51] = J.reshape(T, 51)
     return out
 
-def speed(w, rng, lo=0.8, hi=1.2):
-    f = rng.uniform(lo, hi)
-    n = len(w)
-    t = np.clip(np.arange(n) * f, 0, n - 1)   # f>1이면 빨라지고, 끝을 넘으면 마지막 프레임 유지
-    i0 = np.floor(t).astype(int)
-    i1 = np.minimum(i0 + 1, n - 1)
-    a = (t - i0)[:, None]
-    out = w[i0] * (1 - a) + w[i1] * a
-    out[:, [52, 54]] = np.clip(out[:, [52, 54]] * f, -1, 1)   # 속도 특징은 배속만큼 같이 바뀐다 (features.py와 같이 ±1)
-    return out
 
-def drop_joints(w, rng, lo=1, hi=4):
-    k = int(rng.integers(lo, hi + 1))
-    js = rng.choice(17, size=k, replace=False)
-    j = w[:, :51].reshape(-1, 17, 3).copy()
-    j[:, js, :] = 0.0                          # 못 찾은 관절과 같은 표현(x, y, 신뢰도 모두 0)
-    out = w.copy()
-    out[:, :51] = j.reshape(-1, 51)
-    return out
-
-def augment(w, rng, p=0.5):
-    for fn in (flip, lambda a: jitter(a, rng), lambda a: speed(a, rng), lambda a: drop_joints(a, rng)):
-        if rng.random() < p:
-            w = fn(w)
-    return w
+def augment_batch(X, speed, rng):
+    """X는 이미 speed 배속으로 뽑힌 창. 나머지 증강을 각각 확률 0.5로 건다."""
+    X = scale_velocity(X.copy(), speed)
+    m = rng.random(len(X)) < P
+    X[m] = flip(X[m])
+    m = rng.random(len(X)) < P
+    X[m] = jitter(X[m], rng)
+    for i in np.where(rng.random(len(X)) < P)[0]:
+        X[i] = drop_joints(X[i], rng)
+    return X

@@ -1,104 +1,106 @@
-import sys
-from pathlib import Path
+"""② 정규화와 특징 계산 (제안서 4.3 ②). 학습과 실시간이 이 파일 하나를 같이 쓴다.
+
+프레임당 55차원
+  [0:51]  관절 17개 x (x, y, 신뢰도). 엉덩이 중심을 빼고 max(몸통 길이 x 2.5, 중심에서 가장 먼 관절 거리)로 나눔
+  [51]    몸통 각도 / 90        서 있으면 0, 누우면 1
+  [52]    머리 세로 속도        (크기 단위/초)를 ±3에서 자르고 3으로 나눔. 아래로 움직이면 +
+  [53]    박스 가로/세로 비율   log2(w/h)를 ±2에서 자르고 2로 나눔. 정사각형이면 0, 누우면 +
+  [54]    박스 중심 세로 속도   [52]와 같은 단위
+
+모든 계산은 과거 프레임만 쓴다. FeatureState.step()을 한 프레임씩 부르는 것이 유일한 계산 경로이고,
+compute_features()는 그것을 영상 전체에 반복할 뿐이라 학습용 특징과 실시간 특징이 항상 같다.
+"""
 import numpy as np
 
 FPS = 15
-MIN_CONF = 0.3   # 이보다 낮은 관절은 결측
-MAX_GAP = 2      # 2프레임까지는 보간, 3프레임 이상 끊기면 0
-# 특징 스케일 (관절 좌표가 대략 ±1이라 나머지도 비슷한 범위로 맞춘다)
-ANGLE_SCALE = 90.0   # 몸통 각도(도) / 90 -> 0(서 있음) ~ 1(누움)
-VEL_CLIP = 3.0       # 세로 속도(박스 높이/초)를 ±3에서 자르고 3으로 나눔 -> ±1.
-                     # UR Fall 낙상 영상에서 99%가 ±3 안. 그 밖은 대부분 검출이 튄 값
+N_FEAT = 55
+MIN_CONF = 0.3       # 이보다 낮은 관절은 빠진 것으로 보고 직전 값을 유지 (신뢰도는 0)
+TORSO_MULT = 2.5
+VEL_CLIP = 3.0
+ASPECT_CLIP = 2.0
+L_SH, R_SH, L_HIP, R_HIP = 5, 6, 11, 12
+HEAD = [0, 1, 2, 3, 4]
+ANGLE, HEAD_V, ASPECT, CY_V = 51, 52, 53, 54
 
-def fill_short_gaps(a, max_gap=MAX_GAP):
-    """NaN이 연속 max_gap개 이하면 앞뒤 값으로 직선 보간. 나머지 NaN은 그대로 둔다."""
-    a = a.astype(float).copy()
-    bad = np.isnan(a)
-    n, i = len(a), 0
-    while i < n:
-        if not bad[i]:
-            i += 1
-            continue
-        j = i
-        while j < n and bad[j]:
-            j += 1
-        if (j - i) <= max_gap and i > 0 and j < n:
-            a[i:j] = np.interp(np.arange(i, j), [i - 1, j], [a[i - 1], a[j]])
-        i = j
-    return a
 
-def compute_features(path):
-    d = np.load(path)
-    frames, kpts, boxes = d["frames"], d["kpts"], d["boxes"]
-    # 특징 길이 = 영상 전체 프레임 수. 마지막 검출에서 자르면 누운 뒤 사람을 놓친 구간(쓰러짐)이 사라진다.
-    # n이 없는 옛 raw 파일은 예전처럼 마지막 검출 프레임까지.
-    F = int(d["n"]) if "n" in d else int(frames.max()) + 1
+def _mid(xy, seen, a, b):
+    """두 관절의 중점. 하나만 본 적 있으면 그 관절, 둘 다 없으면 None"""
+    if seen[a] and seen[b]:
+        return (xy[a] + xy[b]) / 2
+    if seen[a]:
+        return xy[a]
+    if seen[b]:
+        return xy[b]
+    return None
 
-    # 빈 프레임은 NaN으로 채운 전체 배열 만들기
-    K = np.full((F, 17, 3), np.nan)
-    K[frames] = kpts
-    B = np.full((F, 4), np.nan)
-    B[frames] = boxes
 
-    # 신뢰도 낮은 관절은 결측 처리 후 짧은 구간만 보간
-    low = ~(K[:, :, 2] >= MIN_CONF)
-    K[low] = np.nan
-    for j in range(17):
-        for c in range(3):
-            K[:, j, c] = fill_short_gaps(K[:, j, c])
-    for c in range(4):
-        B[:, c] = fill_short_gaps(B[:, c])
+class FeatureState:
+    """한 사람의 특징을 프레임 순서대로 계산한다. 사람(추적 ID)마다 하나씩 만든다."""
 
-    w = B[:, 2] - B[:, 0]
-    h = B[:, 3] - B[:, 1]
-    cx = (B[:, 0] + B[:, 2]) / 2
-    cy = (B[:, 1] + B[:, 3]) / 2
-    ok = ~np.isnan(B).any(axis=1) & (h > 1)
-    hs = np.where(ok, h, 1.0)
-    miss = np.isnan(K[:, :, 0]) | np.isnan(K[:, :, 1])
+    def __init__(self, fps=FPS):
+        self.fps = fps
+        self.xy = np.zeros((17, 2))            # 관절별 마지막으로 믿을 만했던 좌표 (픽셀)
+        self.seen = np.zeros(17, bool)         # 한 번이라도 잡힌 관절
+        self.box = None                        # 마지막 박스
+        self.prev = None                       # 직전 프레임의 (머리 y, 박스 중심 y)
 
-    # 박스 중심을 빼고 박스 높이로 나눠서 정규화
-    nx = (K[:, :, 0] - cx[:, None]) / hs[:, None]
-    ny = (K[:, :, 1] - cy[:, None]) / hs[:, None]
-    conf = np.nan_to_num(K[:, :, 2])
-    joints = np.stack([nx, ny, conf], axis=2)
-    joints[miss] = 0.0
-    joints = np.nan_to_num(joints)
+    def step(self, kpts, box):
+        """kpts (17, 3) = x, y, 신뢰도 / box (4,) = x1, y1, x2, y2. 사람을 못 찾은 프레임은 둘 다 None.
+        못 찾은 프레임은 모든 관절이 빠진 것과 같이 처리한다 (좌표 유지, 신뢰도 0)."""
+        out = np.zeros(N_FEAT, np.float32)
+        conf = np.zeros(17)
+        if kpts is not None:
+            kpts = np.asarray(kpts, float)
+            good = np.isfinite(kpts).all(1) & (kpts[:, 2] >= MIN_CONF)
+            self.xy[good] = kpts[good, :2]
+            self.seen |= good
+            conf[good] = kpts[good, 2]
+            self.box = np.asarray(box, float)
+        if self.box is None or not self.seen.any():
+            self.prev = None
+            return out                         # 아직 한 번도 못 본 사람: 전부 0
 
-    # 몸통 각도: 어깨 중점 -> 엉덩이 중점. 서 있으면 0도, 누우면 약 90도
-    s = (joints[:, 5, :2] + joints[:, 6, :2]) / 2
-    hp = (joints[:, 11, :2] + joints[:, 12, :2]) / 2
-    angle = np.degrees(np.arctan2(np.abs(hp[:, 0] - s[:, 0]), np.abs(hp[:, 1] - s[:, 1])))
-    angle = np.where(~miss[:, [5, 6, 11, 12]].any(axis=1), angle, 0.0)
+        xy, seen, b = self.xy, self.seen, self.box
+        w, h = max(b[2] - b[0], 1e-6), max(b[3] - b[1], 1e-6)
+        hip = _mid(xy, seen, L_HIP, R_HIP)
+        sh = _mid(xy, seen, L_SH, R_SH)
+        center = hip if hip is not None else np.array([(b[0] + b[2]) / 2, (b[1] + b[3]) / 2])
+        torso, angle = 0.0, 0.0
+        if hip is not None and sh is not None:
+            d = hip - sh
+            torso = float(np.hypot(d[0], d[1]))
+            if torso > 1e-6:
+                angle = float(np.degrees(np.arctan2(abs(d[0]), abs(d[1])))) / 90.0
+        far = float(np.linalg.norm(xy[seen] - center, axis=1).max())
+        scale = max(torso * TORSO_MULT, far)
+        if scale < 1e-6:
+            scale = max(w, h) / 2
 
-    # 박스 가로/세로 비율
-    aspect = np.where(ok, w / hs, 0.0)
+        n = (xy - center) / scale
+        n[~seen] = 0.0
+        out[:51] = np.concatenate([n, conf[:, None]], 1).reshape(51)
 
-    # 세로 속도 (직전 프레임의 박스 높이 기준, 초당)
-    def vel(a, valid):
-        v = np.zeros(F)
-        both = valid[1:] & valid[:-1]
-        v[1:] = np.where(both, (a[1:] - a[:-1]) / hs[:-1] * FPS, 0.0)
-        return np.nan_to_num(v)
+        head_seen = [j for j in HEAD if seen[j]]
+        head_y = float(xy[head_seen, 1].mean()) if head_seen else None
+        cy = float((b[1] + b[3]) / 2)
+        head_v = cy_v = 0.0
+        if self.prev is not None:
+            if head_y is not None and self.prev[0] is not None:
+                head_v = (head_y - self.prev[0]) / scale * self.fps
+            cy_v = (cy - self.prev[1]) / scale * self.fps
+        self.prev = (head_y, cy)
 
-    head_v = vel(K[:, 0, 1], ok & ~miss[:, 0])
-    cy_v = vel(cy, ok)
+        out[ANGLE] = angle
+        out[HEAD_V] = np.clip(head_v, -VEL_CLIP, VEL_CLIP) / VEL_CLIP
+        out[ASPECT] = np.clip(np.log2(w / h), -ASPECT_CLIP, ASPECT_CLIP) / ASPECT_CLIP
+        out[CY_V] = np.clip(cy_v, -VEL_CLIP, VEL_CLIP) / VEL_CLIP
+        return out
 
-    feats = np.zeros((F, 55))
-    feats[:, :51] = joints.reshape(F, 51)
-    feats[:, 51] = angle / ANGLE_SCALE
-    feats[:, 52] = np.clip(head_v, -VEL_CLIP, VEL_CLIP) / VEL_CLIP
-    feats[:, 53] = aspect
-    feats[:, 54] = np.clip(cy_v, -VEL_CLIP, VEL_CLIP) / VEL_CLIP
-    feats[~ok] = 0.0          # 박스가 없는 프레임은 전부 0
-    return feats
 
-if __name__ == "__main__":
-    src, out_dir = Path(sys.argv[1]), Path(sys.argv[2])
-    out_dir.mkdir(parents=True, exist_ok=True)
-    f = compute_features(src)
-    np.save(out_dir / (src.stem + ".npy"), f.astype(np.float32))
-    print(f"{src.stem}: 특징 {f.shape}")
-    print("빈 프레임(전부 0):", np.where(~f.any(axis=1))[0].tolist())
-    print("몸통 각도/90 (10프레임마다):", [round(float(a), 2) for a in f[::10, 51]])
-    print("박스 가로/세로 비율(10프레임마다):", [round(float(a), 2) for a in f[::10, 53]])
+def compute_features(kpts, box, valid, fps=FPS):
+    """영상 전체: kpts (T, 17, 3), box (T, 4), valid (T,) 사람이 잡힌 프레임 -> (T, 55)"""
+    st = FeatureState(fps)
+    out = np.zeros((len(valid), N_FEAT), np.float32)
+    for t in range(len(valid)):
+        out[t] = st.step(kpts[t], box[t]) if valid[t] else st.step(None, None)
+    return out
