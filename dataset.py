@@ -142,7 +142,8 @@ class Corpus:
         feats, ys, dets, self.names, self.dataset, self.night = [], [], [], [], [], []
         lens = []
         for ds in datasets:
-            d = np.load(Path(data_dir) / f"{ds}.npz")
+            # npz는 d["feat"]처럼 꺼낼 때마다 압축을 새로 푼다. 영상마다 꺼내면 영상 수만큼 전체를 다시 풀므로 한 번만 꺼낸다
+            d = dict(np.load(Path(data_dir) / f"{ds}.npz"))
             vs = d["vid_start"]
             for i in np.where(d["split"] == split)[0]:
                 feats.append(d["feat"][vs[i]:vs[i + 1]])

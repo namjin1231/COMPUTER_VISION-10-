@@ -93,6 +93,20 @@ def run_seed(seed, train, val, a, out):
                 class_weights=w.round(2).tolist(), class_frames=cnt.tolist())
 
 
+def summarize(out, a):
+    """폴더 안에서 끝난 시드를 모두 모아 best.pt와 summary.json을 만든다.
+    시드마다 프로세스를 따로 띄워 동시에 학습해도, 마지막에 끝난 프로세스가 전체를 정리한다."""
+    results = sorted((json.load(open(p)) for p in out.glob("seed*.json")), key=lambda r: r["seed"])
+    f1 = np.array([r["val_macro_f1"] for r in results])
+    top = results[int(f1.argmax())]
+    (out / "best.pt").write_bytes((out / f"seed{top['seed']}.pt").read_bytes())
+    print(f"끝난 시드 {len(results)}개: 검증 macro-F1 {f1.mean():.3f} ± {f1.std():.3f} "
+          f"{[round(float(v), 3) for v in f1]}, best.pt = seed {top['seed']} (epoch {top['epoch']})")
+    json.dump(dict(model=a.model, datasets=a.datasets, args=vars(a), val_macro_f1_mean=float(f1.mean()),
+                   val_macro_f1_std=float(f1.std()), best_seed=top["seed"], seeds=results),
+              open(out / "summary.json", "w"), ensure_ascii=False, indent=1)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="out/data")
@@ -122,12 +136,7 @@ if __name__ == "__main__":
     print(f"학습 영상 {len(train)}개, 창 {len(vid)}개 / 검증 영상 {len(val)}개, 프레임 {int((val.y != EXCLUDE).sum())}")
     print(f"학습 프레임 {CLASS_NAMES} = {cnt.tolist()}, 클래스 가중치 {w.round(2).tolist()}")
 
-    results = [run_seed(s, train, val, a, out) for s in a.seeds]
-    f1 = np.array([r["val_macro_f1"] for r in results])
-    top = results[int(f1.argmax())]
-    (out / "best.pt").write_bytes((out / f"seed{top['seed']}.pt").read_bytes())
-    print(f"검증 macro-F1 {f1.mean():.3f} ± {f1.std():.3f} "
-          f"{[round(float(v), 3) for v in f1]}, best.pt = seed {top['seed']} (epoch {top['epoch']})")
-    json.dump(dict(model=a.model, datasets=a.datasets, args=vars(a), val_macro_f1_mean=float(f1.mean()),
-                   val_macro_f1_std=float(f1.std()), best_seed=top["seed"], seeds=results),
-              open(out / "summary.json", "w"), ensure_ascii=False, indent=1)
+    for s in a.seeds:
+        r = run_seed(s, train, val, a, out)
+        json.dump(r, open(out / f"seed{s}.json", "w"), ensure_ascii=False, indent=1)
+    summarize(out, a)

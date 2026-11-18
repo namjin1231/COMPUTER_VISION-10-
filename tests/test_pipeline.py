@@ -344,6 +344,22 @@ class TestTrainEval(unittest.TestCase):
         live = np.stack([clf.step(1, k[t], b[t]) if v[t] else clf.step(1, None, None) for t in range(60)])
         np.testing.assert_allclose(live, whole, atol=1e-5)
 
+    def test_summarize_merges_parallel_seeds(self):
+        """시드마다 따로 학습한 결과를 모아 검증 점수가 가장 높은 시드를 best.pt로 고른다"""
+        import json
+        from types import SimpleNamespace
+        from train import summarize
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            for s, f in [(0, 0.5), (1, 0.9), (2, 0.7)]:
+                save_ckpt(d / f"seed{s}.pt", build_model("gru"), "gru", seed=s)
+                json.dump(dict(seed=s, val_macro_f1=f, epoch=3), open(d / f"seed{s}.json", "w"))
+            summarize(d, SimpleNamespace(model="gru", datasets=["x"]))
+            self.assertEqual(load_ckpt(d / "best.pt")[1]["seed"], 1)
+            sm = json.load(open(d / "summary.json"))
+            self.assertEqual((sm["best_seed"], len(sm["seeds"])), (1, 3))
+            self.assertAlmostEqual(sm["val_macro_f1_mean"], 0.7, places=6)
+
     def test_learns_fake_falls(self):
         """가짜 낙상 영상으로 짧게 학습하면 검증 영상의 세 클래스를 대부분 맞힌다"""
         torch.manual_seed(0)
