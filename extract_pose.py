@@ -112,6 +112,7 @@ def main():
     ap.add_argument("--conf", type=float, default=None, help="검출 최소 신뢰도 (기본: Ultralytics 기본값)")
     ap.add_argument("--device", default="auto")
     ap.add_argument("--limit", type=int, default=0, help="앞에서부터 N개만 (시험용)")
+    ap.add_argument("--shard", default="0/1", help="i/n: 영상을 n묶음으로 나눈 것 중 i번째만 (여러 터미널에서 동시에 돌릴 때)")
     ap.add_argument("--overwrite", action="store_true")
     a = ap.parse_args()
     if a.dataset:
@@ -121,6 +122,8 @@ def main():
         root = Path(a.src)
         out = Path(a.out or "out/pose/custom")
     vids = [root] if root.is_file() else sorted(p for p in root.rglob("*") if p.suffix.lower() in VID_EXT)
+    si, sn = map(int, a.shard.split("/"))
+    vids = vids[si::sn]
     if a.limit:
         vids = vids[: a.limit]
     if not vids:
@@ -131,9 +134,10 @@ def main():
     model = YOLO(a.model)
     device = pick_device(a.device)
     print(f"영상 {len(vids)}개, 모델 {a.model}, 장치 {device} -> {out}")
-    log_new = not (out / "extract_log.csv").exists()
+    log_path = out / ("extract_log.csv" if sn == 1 else f"extract_log_{si}of{sn}.csv")
+    log_new = not log_path.exists()
     t_all, n_all = time.time(), 0
-    with open(out / "extract_log.csv", "a", newline="") as lf:
+    with open(log_path, "a", newline="") as lf:
         wr = csv.writer(lf)
         if log_new:
             wr.writerow(["name", "n_frames", "n_det", "n_tracks", "sec", "status"])
