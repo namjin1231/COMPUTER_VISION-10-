@@ -1,0 +1,5 @@
+# PyTorch는 따로 먼저 설치 (README 2단계 참고, GPU용 명령이 다름)
+ultralytics==8.4.215
+opencv-python
+numpy
+lap

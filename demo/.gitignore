@@ -1,0 +1,14 @@
+# AI Hub 영상은 올리지 않는다 (팀 내부용, 공개 저장소). 팀 채널로 따로 받아 monitor/clips/ 에 넣는다.
+monitor/clips/*.mp4
+
+# 실행할 때 생기는 것
+__pycache__/
+raw/
+labels/
+logs/
+pose/
+pose_sel/
+seq/
+
+# 루트 .gitignore가 *.pt를 빼지만, 데모 실행에 필요한 모델(판정 모델 3개, yolo26n-pose.pt)은 올린다
+!*.pt

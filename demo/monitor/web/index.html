@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>낙상 감시 모니터</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+      <rect x="2" y="2" width="28" height="28" rx="8" fill="var(--accent)"/>
+      <path d="M7 17h4l2.5-6 4 11 2.5-5H25" fill="none" stroke="#04121c" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="brand-text">
+      <div class="brand-title" id="site">낙상 감시 시스템</div>
+      <div class="brand-sub"><span id="ward">3병동</span> · AI 실시간 판정</div>
+    </div>
+  </div>
+
+  <div class="summary">
+    <div class="sum-item"><span class="sum-label">카메라</span><span class="sum-val" id="sum-cams">0</span></div>
+    <div class="sum-item"><span class="sum-label">정상</span><span class="sum-val ok" id="sum-ok">0</span></div>
+    <div class="sum-item"><span class="sum-label">의심</span><span class="sum-val warn" id="sum-warn">0</span></div>
+    <div class="sum-item"><span class="sum-label">경보</span><span class="sum-val crit" id="sum-alarm">0</span></div>
+  </div>
+
+  <div class="top-right">
+    <button class="btn-ghost" id="sound-btn" title="경보음 켜기/끄기">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path id="sound-wave" d="M16 8.5a4.5 4.5 0 0 1 0 7M18.5 6a8 8 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span id="sound-txt">경보음 꺼짐</span>
+    </button>
+    <div class="live"><span class="live-dot"></span><span id="conn">연결 중</span></div>
+    <div class="clock"><div id="clock-time">--:--:--</div><div id="clock-date"></div></div>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="wall" id="wall" aria-label="카메라 화면"></section>
+
+  <aside class="side">
+    <div class="panel">
+      <div class="panel-head"><h2>병상·구역 상태</h2><span class="muted" id="since"></span></div>
+      <ul class="status-list" id="status-list"></ul>
+    </div>
+
+    <div class="panel grow">
+      <div class="panel-head"><h2>이벤트</h2><span class="badge" id="ev-count">0</span></div>
+      <ol class="events" id="events"><li class="empty">아직 이벤트가 없습니다</li></ol>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>판정 설정</h2></div>
+      <dl class="cfg" id="cfg"></dl>
+    </div>
+  </aside>
+</main>
+
+
+<template id="tile-tpl">
+  <article class="tile" data-state="NONE" tabindex="0">
+    <img class="feed" alt="">
+    <div class="veil"><div class="spinner"></div><span class="veil-txt">연결 중</span></div>
+    <div class="tile-top">
+      <div class="cam-tag"><span class="cam-id"></span><span class="cam-name"></span></div>
+      <div class="state-chip"><span class="dot"></span><span class="state-txt">사람 없음</span></div>
+    </div>
+    <div class="tile-bottom">
+      <div class="meta">
+        <span class="pf">넘어짐 <b>0.00</b></span>
+        <span class="pd">쓰러짐 <b>0.00</b></span>
+        <span class="fps">0 fps</span>
+        <span class="rec"><span class="rec-dot"></span>REC</span>
+      </div>
+    </div>
+    <div class="alarm-layer">
+      <div class="alarm-card">
+        <div class="alarm-icon">!</div>
+        <div class="alarm-body">
+          <div class="alarm-title">낙상 경보</div>
+          <div class="alarm-where"></div>
+        </div>
+        <button class="ack-btn">확인</button>
+      </div>
+    </div>
+  </article>
+</template>
+
+<script src="/app.js"></script>
+</body>
+</html>
