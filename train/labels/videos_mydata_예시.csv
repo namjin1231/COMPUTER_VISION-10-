@@ -1,0 +1,5 @@
+dataset,path,split,subject,light,vid,video_file
+mydata,cam1_fall_001,train,p01,day,cam1_fall_001,raw/mydata/cam1_fall_001.mp4
+mydata,cam1_walk_001,train,p01,day,cam1_walk_001,raw/mydata/cam1_walk_001.mp4
+mydata,cam2_fall_003,val,p02,night,cam2_fall_003,raw/mydata/cam2_fall_003.mp4
+mydata,cam3_fall_007,test,p03,day,cam3_fall_007,raw/mydata/cam3_fall_007.mp4

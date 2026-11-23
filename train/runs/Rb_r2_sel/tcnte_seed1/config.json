@@ -1,0 +1,28 @@
+{
+ "model": "tcnte",
+ "seed": 1,
+ "exp": "Rb_r2_sel",
+ "noaug": false,
+ "ref": false,
+ "epoch": 33,
+ "val_macro": 0.7268,
+ "val_f1": [
+  0.9389212418747616,
+  0.5298057158013394,
+  0.7155852696185884
+ ],
+ "alpha": [
+  1.0,
+  7.293028831481934,
+  5.449625492095947
+ ],
+ "lr": 0.001,
+ "n_windows": 125151,
+ "staged_repeat": 9,
+ "seq_dir": "seq_r2",
+ "hn_weight": 3.0,
+ "extra_macro": 0.7756,
+ "avg_macro": 0.7512,
+ "selected_by": "(OmniFall val macro + AI Hub 새 val macro)/2 최대",
+ "source": "C:\\Users\\nhj63\\Desktop\\fall_kit\\runs\\Rb_r2\\tcnte_seed1\\ep033.pt"
+}

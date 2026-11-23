@@ -1,0 +1,22 @@
+# 영상·데이터는 올리지 않는다 (AI Hub 등은 팀 내부용, 공개 저장소)
+raw/
+pose/
+pose_sel/
+pose_sel_*/
+seq/
+seq_*/
+logs/
+results*.csv
+__pycache__/
+*.mp4
+
+# 학습 결과는 올리지 않고, 출발점인 최종 모델(R-b)만 올린다
+runs/*
+!runs/Rb_r2_sel/
+
+# 루트 .gitignore가 *.pt를 빼지만, 최종 모델 3개와 yolo26n-pose.pt는 올린다
+!*.pt
+
+# 내 데이터 정답표는 올리지 않고 예시만 올린다
+labels/*
+!labels/*_예시.csv

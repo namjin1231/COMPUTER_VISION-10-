@@ -1,0 +1,8 @@
+ultralytics>=8.4
+av
+opencv-python
+numpy
+pandas
+scikit-learn
+matplotlib
+lap
